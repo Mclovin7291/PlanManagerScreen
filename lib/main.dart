@@ -46,8 +46,17 @@ class Plan {
 // Card Widget
 class PlanCard extends StatelessWidget {
   final Plan plan;
+  final Function(Plan) onComplete;
+  final Function(Plan) onEdit;
+  final Function(Plan) onDelete;
 
-  const PlanCard({Key? key, required this.plan}) : super(key: key);
+  const PlanCard({
+    Key? key,
+    required this.plan,
+    required this.onComplete,
+    required this.onEdit,
+    required this.onDelete,
+  }) : super(key: key);
 
   Color _getStatusColor() => plan.status == PlanStatus.pending
       ? Colors.orange
@@ -55,45 +64,69 @@ class PlanCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Container(
-        decoration: BoxDecoration(
-          border: Border.all(color: _getStatusColor(), width: 2),
-          borderRadius: BorderRadius.circular(4),
-        ),
-        child: ListTile(
-          title: Text(
-            plan.name,
-            style: TextStyle(
-              decoration: plan.status == PlanStatus.completed
-                  ? TextDecoration.lineThrough
-                  : null,
+    return Dismissible(
+      key: Key(plan.id),
+      direction: DismissDirection.horizontal,
+      confirmDismiss: (direction) async {
+        onComplete(plan);
+        return false; // Don't remove the item
+      },
+      background: Container(
+        color: Colors.green,
+        alignment: Alignment.centerLeft,
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        child: const Icon(Icons.check, color: Colors.white),
+      ),
+      secondaryBackground: Container(
+        color: Colors.green,
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        child: const Icon(Icons.check, color: Colors.white),
+      ),
+      child: GestureDetector(
+        onLongPress: () => onEdit(plan),
+        onDoubleTap: () => onDelete(plan),
+        child: Card(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Container(
+            decoration: BoxDecoration(
+              border: Border.all(color: _getStatusColor(), width: 2),
+              borderRadius: BorderRadius.circular(4),
             ),
-          ),
-          subtitle: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(plan.description),
-              const SizedBox(height: 4),
-              Text(
-                DateFormat('MMM dd, yyyy').format(plan.date),
+            child: ListTile(
+              title: Text(
+                plan.name,
                 style: TextStyle(
-                  color: Colors.grey[600],
-                  fontSize: 12,
+                  decoration: plan.status == PlanStatus.completed
+                      ? TextDecoration.lineThrough
+                      : null,
                 ),
               ),
-            ],
-          ),
-          leading: Icon(
-            plan.type == PlanType.adoption ? Icons.child_care : Icons.flight,
-            color: _getStatusColor(),
-          ),
-          trailing: Icon(
-            plan.status == PlanStatus.completed
-                ? Icons.check_circle
-                : Icons.circle_outlined,
-            color: _getStatusColor(),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(plan.description),
+                  const SizedBox(height: 4),
+                  Text(
+                    DateFormat('MMM dd, yyyy').format(plan.date),
+                    style: TextStyle(
+                      color: Colors.grey[600],
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+              leading: Icon(
+                plan.type == PlanType.adoption ? Icons.child_care : Icons.flight,
+                color: _getStatusColor(),
+              ),
+              trailing: Icon(
+                plan.status == PlanStatus.completed
+                    ? Icons.check_circle
+                    : Icons.circle_outlined,
+                color: _getStatusColor(),
+              ),
+            ),
           ),
         ),
       ),
@@ -124,6 +157,86 @@ class _PlanManagerScreenState extends State<PlanManagerScreen> {
         type: type,
       ));
     });
+  }
+
+  void _updatePlan(Plan plan) {
+    final index = _plans.indexWhere((p) => p.id == plan.id);
+    if (index != -1) setState(() => _plans[index] = plan);
+  }
+
+  void _togglePlanStatus(Plan plan) => _updatePlan(
+    plan.copyWith(
+      status: plan.status == PlanStatus.pending
+          ? PlanStatus.completed
+          : PlanStatus.pending,
+    ),
+  );
+
+  void _deletePlan(Plan plan) {
+    setState(() => _plans.removeWhere((p) => p.id == plan.id));
+  }
+
+  void _showEditPlanDialog(Plan plan) {
+    final nameController = TextEditingController(text: plan.name);
+    final descController = TextEditingController(text: plan.description);
+    var selectedType = plan.type;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Edit Plan'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameController,
+                decoration: const InputDecoration(labelText: 'Plan Name'),
+              ),
+              TextField(
+                controller: descController,
+                decoration: const InputDecoration(labelText: 'Description'),
+                maxLines: 3,
+              ),
+              const SizedBox(height: 16),
+              DropdownButton<PlanType>(
+                value: selectedType,
+                onChanged: (value) {
+                  if (value != null) {
+                    setDialogState(() => selectedType = value);
+                  }
+                },
+                items: PlanType.values.map((type) => DropdownMenuItem(
+                  value: type,
+                  child: Text(type.toString().split('.').last),
+                )).toList(),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () {
+                if (nameController.text.isNotEmpty) {
+                  _updatePlan(
+                    plan.copyWith(
+                      name: nameController.text,
+                      description: descController.text,
+                      type: selectedType,
+                    ),
+                  );
+                  Navigator.pop(context);
+                }
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _showAddPlanDialog() {
@@ -216,11 +329,43 @@ class _PlanManagerScreenState extends State<PlanManagerScreen> {
                 .toList(),
           ),
           Expanded(
-            child: ListView.builder(
-              itemCount: plansForSelectedDate.length,
-              itemBuilder: (context, index) {
-                final plan = plansForSelectedDate[index];
-                return PlanCard(plan: plan);
+            child: DragTarget<Plan>(
+              onAccept: (plan) {
+                if (_draggedPlan != null) {
+                  setState(() {
+                    _updatePlan(_draggedPlan!.copyWith(date: _selectedDate));
+                    _draggedPlan = null;
+                  });
+                }
+              },
+              builder: (context, candidateData, rejectedData) {
+                return ListView.builder(
+                  itemCount: plansForSelectedDate.length,
+                  itemBuilder: (context, index) {
+                    final plan = plansForSelectedDate[index];
+                    return LongPressDraggable<Plan>(
+                      data: plan,
+                      feedback: SizedBox(
+                        width: MediaQuery.of(context).size.width * 0.9,
+                        child: PlanCard(
+                          plan: plan,
+                          onComplete: _togglePlanStatus,
+                          onEdit: _showEditPlanDialog,
+                          onDelete: _deletePlan,
+                        ),
+                      ),
+                      childWhenDragging: Container(),
+                      onDragStarted: () => setState(() => _draggedPlan = plan),
+                      onDragEnd: (_) => setState(() => _draggedPlan = null),
+                      child: PlanCard(
+                        plan: plan,
+                        onComplete: _togglePlanStatus,
+                        onEdit: _showEditPlanDialog,
+                        onDelete: _deletePlan,
+                      ),
+                    );
+                  },
+                );
               },
             ),
           ),
